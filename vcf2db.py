@@ -190,8 +190,8 @@ class VCFDB(object):
     effect_list = ["CSQ", "ANN", "EFF"]
     _black_list = []
 
-    def __init__(self, vcf_path, db_path, gene_summary_path, gene_details_path, 
-                 ped_path=None, blobber=pack_blob, black_list=None, expand=None):
+    def __init__(self, vcf_path, db_path, ped_path=None, gene_summary_path=None, gene_details_path=None, 
+                  blobber=pack_blob, black_list=None, expand=None):
         self.vcf_path = vcf_path
         self.db_path = get_dburl(db_path)
         self.engine = sql.create_engine(self.db_path, poolclass=sql.pool.NullPool)
@@ -204,8 +204,8 @@ class VCFDB(object):
 
         self.blobber = blobber
         self.ped_path = ped_path
-        self.gene_details = gene_details_path
-        self.gene_summary = gene_summary_path
+        self.gene_details_path = gene_details_path
+        self.gene_summary_path = gene_summary_path
         self.black_list = list(VCFDB._black_list) + list(VCFDB.effect_list) + (black_list or [])
 
         self.vcf = cyvcf2.VCF(vcf_path)
