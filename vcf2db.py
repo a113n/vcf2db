@@ -3,7 +3,7 @@ Take a VCF and create a gemini compatible database
 """
 from __future__ import print_function
 import sys
-
+import csv
 import itertools as it
 import re
 import zlib
@@ -190,8 +190,8 @@ class VCFDB(object):
     effect_list = ["CSQ", "ANN", "EFF"]
     _black_list = []
 
-    def __init__(self, vcf_path, db_path, ped_path=None, blobber=pack_blob,
-                 black_list=None, expand=None):
+    def __init__(self, vcf_path, db_path, gene_summary_path, gene_details_path, 
+                 ped_path=None, blobber=pack_blob, black_list=None, expand=None):
         self.vcf_path = vcf_path
         self.db_path = get_dburl(db_path)
         self.engine = sql.create_engine(self.db_path, poolclass=sql.pool.NullPool)
@@ -204,6 +204,8 @@ class VCFDB(object):
 
         self.blobber = blobber
         self.ped_path = ped_path
+        self.gene_details = gene_details_path
+        self.gene_summary = gene_summary_path
         self.black_list = list(VCFDB._black_list) + list(VCFDB.effect_list) + (black_list or [])
 
         self.vcf = cyvcf2.VCF(vcf_path)
@@ -211,6 +213,7 @@ class VCFDB(object):
         self.cache = it.islice(self.vcf, 10000)
         self.create_columns()
         self.samples = self.create_samples()
+        self.create_gene_table()
         self.load()
         self.index()
 
@@ -488,6 +491,12 @@ class VCFDB(object):
         sql.Index("idx_variants_coding", self.variants.c.is_coding).create()
         sql.Index("idx_variants_impact", self.variants.c.impact).create()
         sql.Index("idx_variants_impact_severity", self.variants.c.impact_severity).create()
+        sql.Index("gendet_chrom_gene_idx", self.gene_detailed.c.chrom, self.gene_detailed.gene).create()
+        sql.Index("gendet_rvis_idx",self.gene_detailed.c.rvis_pct).create()
+        sql.Index("gendet_transcript_idx",self.gene_detailed.c.transcript).create()
+        sql.Index("gendet_ccds_idx",self.gene_detailed.c.ccds_id).create()
+        sql.Index("gensum_chrom_gene_idx",self.gene_summary.c.chrom, self.gene_summary.c.gene).create()
+        sql.Index("gensum_rvis_idx",self.gene_summary.c.rvis_pct).create()
         sys.stderr.write("finished in %.1f seconds...\n" % (time.time() - t0))
         sys.stderr.write("total time: in %.1f seconds...\n" % (time.time() - self.t0))
 
@@ -539,6 +548,71 @@ class VCFDB(object):
         self.sample_idxs = np.array(idxs)
         return [r[2] for r in rows]
 
+    def create_gene_table(self):
+        self.gene_detailed = sql.Table("gene_detailed", self.metadata, *self.gene_detailed_columns)
+        self.gene_detailed.drop(checkfirst=True)
+        self.gene_detailed.create()
+        
+        rows = []
+        infile = open(self.gene_details_path, 'r')
+        reader = csv.reader(infile, delimiter='\t')
+        header = reader.__next__()
+        for row in reader:
+            rows.append({key:row[i] for i, key in enumerate(header)})
+        self.engine.execute(self.gene_detailed.insert(), rows)
+        infile.close()
+        
+        self.gene_summary = sql.Table("gene_summary", self.metadata, *self.gene_summary_columns)
+        self.gene_summary.drop(checkfirst=True)
+        self.gene_summary.create()
+        
+        rows = []
+        infile = open(self.gene_summary_path, 'r')
+        reader = csv.reader(infile, delimiter='\t')
+        header = reader.__next__()
+        for row in reader:
+            rows.append({key:row[i] for i, key in enumerate(header)})
+        self.engine.execute(self.gene_summary.insert(), rows)
+        infile.close()
+    
+    def gene_detailed_columns(self):
+        # Adapted from arq5x/gemini/database.py
+        return [
+            sql.Column("uid", sql.Integer(), primary_key=True),
+            sql.Column("chrom", sql.String(60)),
+            sql.Column("gene", sql.String(60)),
+            sql.Column("is_hgnc", sql.Boolean()),
+            sql.Column("ensembl_gene_id", sql.TEXT()),
+            sql.Column("transcript", sql.String(60)),
+            sql.Column("biotype", sql.TEXT()),
+            sql.Column("transcript_status", sql.TEXT()),
+            sql.Column("ccds_id", sql.String(60)),
+            sql.Column("hgnc_id", sql.TEXT()),
+            sql.Column("cds_length", sql.TEXT()),
+            sql.Column("protein_length", sql.TEXT()),
+            sql.Column("transcript_start", sql.TEXT()),
+            sql.Column("transcript_end", sql.TEXT()),
+            sql.Column("strand", sql.TEXT()),
+            sql.Column("synonym", sql.TEXT()),
+            sql.Column("rvis_pct", sql.Float()),
+            sql.Column("mam_phenotype_id", sql.TEXT()),
+           ]
+
+    def gene_summary_columns(self):
+        # Adapted from arq5x/gemini/database.py
+        return [
+            sql.Column("uid", sql.Integer(), primary_key=True),
+            sql.Column("chrom", sql.String(60)),
+            sql.Column("gene", sql.String(60)),
+            sql.Column("is_hgnc", sql.Boolean()),
+            sql.Column("ensembl_gene_id", sql.TEXT()),
+            sql.Column("hgnc_id", sql.TEXT()),
+            sql.Column("strand", sql.TEXT()),
+            sql.Column("synonym", sql.TEXT()),
+            sql.Column("rvis_pct", sql.Float()),
+            sql.Column("mam_phenotype_id", sql.TEXT()),
+           ]
+    
     def get_variants_columns(self):
         columns = self.variants_default_columns()
         columns.extend(self.variants_calculated_columns())
@@ -785,6 +859,8 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser(__doc__)
     p.add_argument("VCF")
     p.add_argument("ped")
+    p.add_argument("gene_summary")
+    p.add_argument("gene_details")
     p.add_argument("db")
     p.add_argument("-e", "--info-exclude", action='append',
                    help="don't save this field to the database. May be specified " \
@@ -797,10 +873,8 @@ if __name__ == "__main__":
                    help="sample columns to expand into their own tables",
                    choices=GT_TYPE_LOOKUP.keys())
 
-
-
     a = p.parse_args()
 
     main_blobber = pack_blob if a.legacy_compression else snappy_pack_blob
 
-    VCFDB(a.VCF, a.db, a.ped, black_list=a.info_exclude, expand=a.expand, blobber=main_blobber)
+    VCFDB(a.VCF, a.db, a.ped, a.gene_summary, a.gene_details, black_list=a.info_exclude, expand=a.expand, blobber=main_blobber)
