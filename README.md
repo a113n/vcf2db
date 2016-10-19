@@ -66,11 +66,11 @@ Load
 Gather a PED file and load with the script:
 
 ```
-python vcf2db.py some.annotated.vcf.gz some.ped my.gemini.db
+python vcf2db.py some.annotated.vcf.gz some.ped gene_summary gene_details my.gemini.db
 ```
 
 To have the sample fields expanded into separate tables so that they can be used INFO
 SQL queries directly, use:
 ```
-python vcf2db.py some.annotated.vcf.gz some.ped my.gemini.db --expand gt_types --expand gt_ref_depths --expand gt_alt_depths
+python vcf2db.py some.annotated.vcf.gz some.ped gene_summary gene_details my.gemini.db --expand gt_types --expand gt_ref_depths --expand gt_alt_depths
 ```
