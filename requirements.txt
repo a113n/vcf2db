@@ -4,3 +4,4 @@ numpy>=1.0
 peddy
 git+https://github.com/brentp/geneimpacts.git#egg=geneimpacts
 python-snappy
+pandas>=0.18.1
