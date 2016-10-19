@@ -564,7 +564,7 @@ class VCFDB(object):
         for row in reader:
             if row[0]=="Chromosome":
                 continue            
-            rows.append({key:row[i] for i, key in enumerate(header)})
+            rows.append({key:(row[i] if row[i] != "" else None) for i, key in enumerate(header)})
         self.engine.execute(self.gene_detailed.insert(), rows)
         infile.close()
         
@@ -579,7 +579,7 @@ class VCFDB(object):
         for row in reader:
             if row[0]=="Chromosome":
                 continue
-            rows.append({key:row[i] for i, key in enumerate(header)})
+            rows.append({key:(row[i] if row[i] != "" else None) for i, key in enumerate(header)})
         self.engine.execute(self.gene_summary.insert(), rows)
         infile.close()
     
