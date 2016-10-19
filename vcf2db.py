@@ -558,11 +558,12 @@ class VCFDB(object):
         rows = []
         infile = open(self.gene_details_path, 'r')
         reader = csv.reader(infile, delimiter='\t')
-        try:
-            header = reader.next()
-        except: #python3
-            header = reader.__next__()
+        header = [ "chrom", "gene", "is_hgnc", "ensembl_gene_id", "transcript", "biotype", 
+                  "transcript_status", "ccds_id", "hgnc_id", "cds_length", "protein_length", 
+                  "transcript_start", "transcript_end", "strand", "synonym", "rvis_pct", "entrez_id", "mam_phenotype_id"]
         for row in reader:
+            if row[0]=="Chromosome":
+                continue            
             rows.append({key:row[i] for i, key in enumerate(header)})
         self.engine.execute(self.gene_detailed.insert(), rows)
         infile.close()
@@ -574,11 +575,10 @@ class VCFDB(object):
         rows = []
         infile = open(self.gene_summary_path, 'r')
         reader = csv.reader(infile, delimiter='\t')
-        try:
-            header = reader.next()
-        except: #python3
-            header = reader.__next__()
+        header = [ "chrom", "gene", "is_hgnc", "ensembl_gene_id", "hgnc_id", "synonym", "rvis_pct", "strand", "mam_phenotype_id"]
         for row in reader:
+            if row[0]=="Chromosome":
+                continue
             rows.append({key:row[i] for i, key in enumerate(header)})
         self.engine.execute(self.gene_summary.insert(), rows)
         infile.close()
@@ -603,6 +603,7 @@ class VCFDB(object):
             sql.Column("strand", sql.TEXT()),
             sql.Column("synonym", sql.TEXT()),
             sql.Column("rvis_pct", sql.Float()),
+            sql.Column("entrez_id", sql.TEXT()),
             sql.Column("mam_phenotype_id", sql.TEXT()),
            ]
 
@@ -615,9 +616,9 @@ class VCFDB(object):
             sql.Column("is_hgnc", sql.Boolean()),
             sql.Column("ensembl_gene_id", sql.TEXT()),
             sql.Column("hgnc_id", sql.TEXT()),
-            sql.Column("strand", sql.TEXT()),
             sql.Column("synonym", sql.TEXT()),
             sql.Column("rvis_pct", sql.Float()),
+            sql.Column("strand", sql.TEXT()),
             sql.Column("mam_phenotype_id", sql.TEXT()),
            ]
     
