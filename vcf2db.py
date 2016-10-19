@@ -397,6 +397,8 @@ class VCFDB(object):
     def create_columns(self):
         self.variants_columns = self.get_variants_columns()
         self.variant_impacts_columns = self.get_variant_impacts_columns()
+        self.gene_detailed_columns = self.get_gene_detailed_columns()
+        self.gene_summary_columns = self.get_gene_summary_columns()
 
     def create(self, dvariants, dvariant_impacts):
         # update the lengths of the string columns based on the variants that
@@ -491,7 +493,7 @@ class VCFDB(object):
         sql.Index("idx_variants_coding", self.variants.c.is_coding).create()
         sql.Index("idx_variants_impact", self.variants.c.impact).create()
         sql.Index("idx_variants_impact_severity", self.variants.c.impact_severity).create()
-        sql.Index("gendet_chrom_gene_idx", self.gene_detailed.c.chrom, self.gene_detailed.gene).create()
+        sql.Index("gendet_chrom_gene_idx", self.gene_detailed.c.chrom, self.gene_detailed.c.gene).create()
         sql.Index("gendet_rvis_idx",self.gene_detailed.c.rvis_pct).create()
         sql.Index("gendet_transcript_idx",self.gene_detailed.c.transcript).create()
         sql.Index("gendet_ccds_idx",self.gene_detailed.c.ccds_id).create()
@@ -556,7 +558,10 @@ class VCFDB(object):
         rows = []
         infile = open(self.gene_details_path, 'r')
         reader = csv.reader(infile, delimiter='\t')
-        header = reader.__next__()
+        try:
+            header = reader.next()
+        except: #python3
+            header = reader.__next__()
         for row in reader:
             rows.append({key:row[i] for i, key in enumerate(header)})
         self.engine.execute(self.gene_detailed.insert(), rows)
@@ -569,13 +574,16 @@ class VCFDB(object):
         rows = []
         infile = open(self.gene_summary_path, 'r')
         reader = csv.reader(infile, delimiter='\t')
-        header = reader.__next__()
+        try:
+            header = reader.next()
+        except: #python3
+            header = reader.__next__()
         for row in reader:
             rows.append({key:row[i] for i, key in enumerate(header)})
         self.engine.execute(self.gene_summary.insert(), rows)
         infile.close()
     
-    def gene_detailed_columns(self):
+    def get_gene_detailed_columns(self):
         # Adapted from arq5x/gemini/database.py
         return [
             sql.Column("uid", sql.Integer(), primary_key=True),
@@ -598,7 +606,7 @@ class VCFDB(object):
             sql.Column("mam_phenotype_id", sql.TEXT()),
            ]
 
-    def gene_summary_columns(self):
+    def get_gene_summary_columns(self):
         # Adapted from arq5x/gemini/database.py
         return [
             sql.Column("uid", sql.Integer(), primary_key=True),
