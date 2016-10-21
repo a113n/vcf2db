@@ -563,7 +563,7 @@ class VCFDB(object):
                   "transcript_start", "transcript_end", "strand", "synonym", "rvis_pct", "entrez_id", "mam_phenotype_id"]
         for row in reader:
             if row[0]=="Chromosome":
-                continue            
+                continue
             rows.append({key:(row[i] if row[i] != "" else None) for i, key in enumerate(header)})
         self.engine.execute(self.gene_detailed.insert(), rows)
         infile.close()
@@ -673,6 +673,7 @@ class VCFDB(object):
             sql.Column("polyphen_score", sql.Float()),
             sql.Column("sift_pred", sql.String(20)),
             sql.Column("sift_score", sql.Float()),
+            sql.Column("cadd_phred", sql.Float()),
             ]
 
 
@@ -799,7 +800,7 @@ def gene_info(d_and_impacts_headers):
     keys = ('gene', 'transcript', 'is_exonic', 'is_coding', 'is_splicing',
             'is_lof', 'exon', 'codon_change', 'aa_change', 'aa_length',
             'biotype', 'top_consequence', 'so', 'effect_severity',
-            'polyphen_pred', 'polyphen_score', 'sift_pred', 'sift_score')
+            'polyphen_pred', 'polyphen_score', 'sift_pred', 'sift_score','cadd_phred')
 
 
     if has_samples:
@@ -842,7 +843,8 @@ def gene_info(d_and_impacts_headers):
                              polyphen_pred=impact.polyphen_pred,
                              polyphen_score=impact.polyphen_score,
                              sift_pred=impact.sift_pred,
-                             sift_score=impact.sift_score))
+                             sift_score=impact.sift_score,
+                             cadd_phred=impact.cadd_phred))
         for k in impact.unused():
             gimpacts[-1][k.lower()] = impact.effects.get(k, '')
     return d, gimpacts
