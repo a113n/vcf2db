@@ -669,6 +669,7 @@ class VCFDB(object):
             sql.Column("impact", sql.String(20)),
             sql.Column("impact_so", sql.String(20)),
             sql.Column("impact_severity", sql.String(4)),
+            sql.Column("domains", sql.TEXT()),
             sql.Column("polyphen_pred", sql.String(20)),
             sql.Column("polyphen_score", sql.Float()),
             sql.Column("sift_pred", sql.String(20)),
@@ -686,6 +687,8 @@ class VCFDB(object):
             sql.Column("metalr_pred", sql.String(20)),
             sql.Column("provean_score", sql.Float()),
             sql.Column("provean_pred", sql.String(20)),
+            sql.Column("phastcons100way_vertebrate", sql.Float()),
+            sql.Column("phylop100way_vertebrate", sql.Float()),
             ]
 
 
@@ -811,11 +814,12 @@ def gene_info(d_and_impacts_headers):
 
     keys = ('gene', 'transcript', 'is_exonic', 'is_coding', 'is_splicing',
             'is_lof', 'exon', 'codon_change', 'aa_change', 'aa_length',
-            'biotype', 'top_consequence', 'so', 'effect_severity',
+            'biotype', 'top_consequence', 'so', 'effect_severity', 'domains'
             'polyphen_pred', 'polyphen_score', 'sift_pred', 'sift_score','cadd_phred',
             'fathmmmkl_score', 'fathmmmkl_pred', 'mutationassessor_score', 'mutationassessor_pred',
             'mutationtaster_score', 'mutationtaster_pred', 'metasvm_score', 'metasvm_pred',
-            'metalr_score', 'metalr_pred', 'provean_score', 'provean_pred')
+            'metalr_score', 'metalr_pred', 'provean_score', 'provean_pred',
+            'phastcons100way_vertebrate', 'phylop100way_vertebrate')
 
 
     if has_samples:
@@ -855,6 +859,7 @@ def gene_info(d_and_impacts_headers):
                              aa_change=impact.aa_change, aa_length=impact.aa_length,
                              biotype=impact.biotype, top_consequence=impact.top_consequence,
                              so=impact.so, effect_severity=impact.effect_severity,
+                             domains=impact.domains,
                              polyphen_pred=impact.polyphen_pred,
                              polyphen_score=impact.polyphen_score,
                              sift_pred=impact.sift_pred,
@@ -871,7 +876,9 @@ def gene_info(d_and_impacts_headers):
                              metalr_score=impact.metalr_score,
                              metalr_pred=impact.metalr_pred,
                              provean_score=impact.provean_score,
-                             provean_pred=impact.provean_pred))
+                             provean_pred=impact.provean_pred,
+                             phastcons100way_vertebrate=impact.phastcons100way_vertebrate,
+                             phylop100way_vertebrate=impact.phylop100way_vertebrate))
         for k in impact.unused():
             gimpacts[-1][k.lower()] = impact.effects.get(k, '')
     return d, gimpacts
@@ -916,3 +923,4 @@ if __name__ == "__main__":
     main_blobber = pack_blob if a.legacy_compression else snappy_pack_blob
 
     VCFDB(a.VCF, a.db, a.ped, a.gene_summary, a.gene_details, black_list=a.info_exclude, expand=a.expand, blobber=main_blobber)
+
