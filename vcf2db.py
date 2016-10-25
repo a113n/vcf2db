@@ -674,6 +674,18 @@ class VCFDB(object):
             sql.Column("sift_pred", sql.String(20)),
             sql.Column("sift_score", sql.Float()),
             sql.Column("cadd_phred", sql.Float()),
+            sql.Column("fathmm_score", sql.Float()),
+            sql.Column("fathmm_pred", sql.String(20)),
+            sql.Column("mutationassessor_score", sql.Float()),
+            sql.Column("mutationassessor_pred", sql.String(20)),
+            sql.Column("mutationtaster_score", sql.Float()),
+            sql.Column("mutationtaster_pred", sql.String(20)),
+            sql.Column("metasvm_score", sql.Float()),
+            sql.Column("metasvm_pred", sql.String(20)),
+            sql.Column("metalr_score", sql.Float()),
+            sql.Column("metalr_pred", sql.String(20)),
+            sql.Column("provean_score", sql.Float()),
+            sql.Column("provean_pred", sql.String(20)),
             ]
 
 
@@ -800,7 +812,10 @@ def gene_info(d_and_impacts_headers):
     keys = ('gene', 'transcript', 'is_exonic', 'is_coding', 'is_splicing',
             'is_lof', 'exon', 'codon_change', 'aa_change', 'aa_length',
             'biotype', 'top_consequence', 'so', 'effect_severity',
-            'polyphen_pred', 'polyphen_score', 'sift_pred', 'sift_score','cadd_phred')
+            'polyphen_pred', 'polyphen_score', 'sift_pred', 'sift_score','cadd_phred',
+            'fathmm_score', 'fathmm_pred', 'mutationassessor_score', 'mutationassessor_pred',
+            'mutationtaster_score', 'mutationtaster_pred', 'metasvm_score', 'metasvm_pred',
+            'metalr_score', 'metalr_pred', 'provean_score', 'provean_pred')
 
 
     if has_samples:
@@ -844,7 +859,19 @@ def gene_info(d_and_impacts_headers):
                              polyphen_score=impact.polyphen_score,
                              sift_pred=impact.sift_pred,
                              sift_score=impact.sift_score,
-                             cadd_phred=impact.cadd_phred))
+                             cadd_phred=impact.cadd_phred,
+                             fathmm_score=impact.fathmm_score, 
+                             fathmm_pred=impact.fathmm_pred,
+                             mutationassessor_score=impact.mutationassessor_score,
+                             mutationassessor_pred=impact.mutationassessor_pred,
+                             mutationtaster_score=impact.mutationtaster_score,
+                             mutationtaster_pred=impact.mutationtaster_pred,
+                             metasvm_score=impact.metasvm_score,
+                             metasvm_pred=impact.metasvm_pred,
+                             metalr_score=impact.metalr_score,
+                             metalr_pred=impact.metalr_pred,
+                             provean_score=impact.provean_score,
+                             provean_pred=impact.provean_pred))
         for k in impact.unused():
             gimpacts[-1][k.lower()] = impact.effects.get(k, '')
     return d, gimpacts
