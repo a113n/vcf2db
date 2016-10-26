@@ -2,6 +2,6 @@ sqlalchemy>=0.9
 cyvcf2>=0.2.0
 numpy>=1.0
 peddy
-git+https://github.com/brentp/geneimpacts.git#egg=geneimpacts
+git+https://github.com/a113n/geneimpacts.git#egg=geneimpacts
 python-snappy
 pandas>=0.18.1
