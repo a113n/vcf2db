@@ -187,11 +187,11 @@ class VCFDB(object):
     gt_cols = ("gts", "gt_types", "gt_phases", "gt_depths", "gt_ref_depths",
                "gt_alt_depths", "gt_quals")
 
-    effect_list = ["CSQ", "ANN", "EFF"]
+    effect_list = ["CSQ", "ANN", "EFF", "BCSQ"]
     _black_list = []
 
     def __init__(self, vcf_path, db_path, ped_path=None, gene_summary_path=None, gene_details_path=None, 
-                  blobber=pack_blob, black_list=None, expand=None):
+                  blobber=pack_blob, black_list=None, expand=None, impacts_extras=None):
         self.vcf_path = vcf_path
         self.db_path = get_dburl(db_path)
         self.engine = sql.create_engine(self.db_path, poolclass=sql.pool.NullPool)
@@ -200,6 +200,7 @@ class VCFDB(object):
         self.expand = expand or []
         self.stringers = []
         self.af_cols = []  # track these to set to -1
+        self.impacts_extras = set(map(clean, impacts_extras or []))
         self.extra_columns = []
 
         self.blobber = blobber
@@ -299,14 +300,18 @@ class VCFDB(object):
 
         for variant, impacts in map(gene_info, ((v,
                      self.impacts_headers, self.blobber, self.gt_cols, keys,
-                     has_samples, self.stringers, self.extra_columns) for
+                     has_samples, self.stringers, self.extra_columns, self.impacts_extras) for
                      v in variants)
                      ):
             # set afs columns to -1 by default.
             for col in self.af_cols:
                 af_val = variant.get(col)
-                if af_val is None or np.isnan(af_val):
-                    variant[col] = -1.0
+                try:
+                    if af_val is None or af_val == "" or (not isinstance(af_val, basestring) and np.isnan(af_val)):
+                        variant[col] = -1.0
+                except TypeError:
+                    print(af_val, type(af_val))
+                    raise
             variant_impacts.extend(impacts)
             ivariants.append(variant)
         te = time.time() - te
@@ -395,10 +400,16 @@ class VCFDB(object):
         return time.time() - tx
 
     def create_columns(self):
-        self.variants_columns = self.get_variants_columns()
-        self.variant_impacts_columns = self.get_variant_impacts_columns()
+        self.variants_columns = list(self.get_variants_columns())
+        self.variant_impacts_columns = list(self.get_variant_impacts_columns())
         self.gene_detailed_columns = self.get_gene_detailed_columns()
         self.gene_summary_columns = self.get_gene_summary_columns()
+        if self.impacts_extras == []:
+            return
+        ixtra = [x.copy() for x in self.variants_columns if x.name in self.impacts_extras]
+        if len(ixtra) != len(self.impacts_extras):
+            print("WARNING: didn't find impacts extras: %s\n" % ",".join(self.impacts_extras - set(x.name for x in ixtra)), file=sys.stderr)
+        self.variant_impacts_columns.extend(ixtra)
 
     def create(self, dvariants, dvariant_impacts):
         # update the lengths of the string columns based on the variants that
@@ -419,9 +430,9 @@ class VCFDB(object):
                 try:
                     if col.type.length < len(str(d.get(name, ''))):
                         # col.type.length = int(1.618 * len(d[name]) + 0.5)
-                        col.type.length = int(1.2 * len(d[name]) + 0.5)
+                        col.type.length = int(1.2 * len(str(d[name])) + 0.5)
                 except:
-                    print(name, col.type.length)
+                    print(name, col.type, file=sys.stderr)
                     raise
                 if col.type.length > 48:
                     col.type = sql.TEXT()
@@ -627,16 +638,14 @@ class VCFDB(object):
         columns.extend(self.variants_calculated_columns())
         columns.extend(self.variants_gene_columns())
         columns.extend(self.variants_sv_columns())
-        columns.extend(self.variants_info_columns(self.vcf.raw_header))
-        # now file extra from, e.g. CSQ field that go in both variants and
-        # variant_impacts
+        columns.extend(self.variants_info_columns())
         columns.extend(self.get_extra_cols())
         columns.extend(self.variants_genotype_columns())
         return columns
 
     def get_extra_cols(self):
         for c in self.extra_columns:
-            yield sql.Column(c.lower(), sql.String(10))
+            yield sql.Column(clean(c), sql.String(10))
 
     def variants_default_columns(self):
         return [
@@ -734,17 +743,60 @@ class VCFDB(object):
             parts = [x.strip(" [])'(\"") for x in re.split("\||\(", desc.split(":", 1)[1].strip())]
         elif hdr_dict["ID"] == "CSQ":
             parts = [x.strip(" [])'(\"") for x in re.split("\||\(", desc.split(":", 1)[1].strip())]
+        elif hdr_dict["ID"] == "BCSQ":
+            parts = desc.split(']', 1)[1].split(']')[0].replace('[','').split("|")
         else:
             raise Exception("don't know how to use %s as annotation" % hdr_dict["ID"])
         self.impacts_headers[hdr_dict["ID"]] = parts
 
-    def variants_info_columns(self, raw_header):
-        """create Column() objects for each entry in the info field"""
+    @property
+    def header_infos(self):
+        if hasattr(self, "_header_infos"):
+            return self._header_infos
+        raw_header = self.vcf.raw_header
+        self._header_infos = []
         for l in (x.strip() for x in from_bytes(raw_header).split("\n")):
             if not l.startswith("##INFO"):
                 continue
 
             d = info_parse(l)
+            self._header_infos.append(d)
+        return self._header_infos
+
+    def type_for_field(self, d):
+        """ returns sql.Column, string cid, bool af_col, bool stringer"""
+
+        cid = clean(d["ID"])
+        if (d['Number'] in "RA" and not af_like(cid)) or (d['Number'].isdigit() and d['Number'] != '1'):
+            print("skipping '%s' because it has Number=%s" % (d["ID"], d["Number"]),
+                  file=sys.stderr)
+            return None, None, None, None
+
+        af_col = False
+        stringer = False
+        col = None
+        if d["ID"] in self.black_list or cid in self.black_list:
+            return None, None, None, None
+
+        if cid == "id":
+            cid = "idx"
+
+        if af_like(cid):
+            col = sql.Column(cid, sql.Float(), default=-1.0, nullable=False)
+            af_col = True
+        elif d['Number'] == '.':
+            if d["Type"] != "String":
+                print("setting %s to Type String because it has Number=." % d["ID"],
+                      file=sys.stderr)
+            col = sql.Column(cid, type_lookups["String"], primary_key=False)
+            stringer = True
+        else:
+            col = sql.Column(cid, type_lookups[d["Type"]], primary_key=False)
+        return col, cid, af_col, stringer
+
+    def variants_info_columns(self):
+        """create Column() objects for each entry in the info field"""
+        for d in self.header_infos:
             if d["ID"] in self.effect_list:
                 self.update_impacts_headers(d)
                 default = set(KEY_2_CLASS[d["ID"]].keys)
@@ -752,34 +804,16 @@ class VCFDB(object):
                 self.extra_columns.extend([x for x in self.impacts_headers[d["ID"]] if not x in default])
 
                 continue
-            if d['Number'] in "RA":
-                print("skipping '%s' because it has Number=%s" % (d["ID"], d["Number"]), 
-                      file=sys.stderr)
-                continue
+            col, cid, af_col, stringer = self.type_for_field(d)
+            if col is None: continue
+            if af_col: self.af_cols.append(cid)
+            if stringer: self.stringers.append(d["ID"])
+            yield col
 
-
-            cid = clean(d["ID"])
-            if d["ID"] in self.black_list or cid in self.black_list:
-                continue
-            if cid == "id":
-                cid = "idx"
-
-            if af_like(cid):
-                c = sql.Column(cid, sql.Float(), default=-1.0, nullable=False)
-                self.af_cols.append(cid)
-            elif d['Number'] == '.':
-                if d["Type"] != "String":
-                    print("setting %s to Type String because it has Number=." % d["ID"],
-                          file=sys.stderr)
-                c = sql.Column(cid, type_lookups["String"], primary_key=False)
-                self.stringers.append(d["ID"])
-            else:
-                c = sql.Column(cid, type_lookups[d["Type"]], primary_key=False)
-            yield c
         self.stringers = set(self.stringers)
 
 def af_like(cid):
-    return cid.endswith(("_af", "_aaf")) or cid.startswith(("af_", "aaf_", "an_")) or "_aaf_" in cid
+    return cid.endswith(("_af", "_aaf")) or cid.startswith(("af_", "aaf_", "an_")) or "_aaf_" in cid or "_af_" in cid
 
 class noner(object):
     def __getattr__(self, key):
@@ -792,13 +826,14 @@ noner = noner()
 KEY_2_CLASS = {
         'CSQ': geneimpacts.VEP,
         'EFF': geneimpacts.OldSnpEff,
-        'ANN': geneimpacts.SnpEff
+        'ANN': geneimpacts.SnpEff,
+        'BCSQ': geneimpacts.BCFT,
         }
 
 def gene_info(d_and_impacts_headers):
     # this is parallelized as it's only simple objects and the gene impacts
     # stuff is slow.
-    d, impacts_headers, blobber, gt_cols, req_cols, has_samples, stringers, extra_columns = d_and_impacts_headers
+    d, impacts_headers, blobber, gt_cols, req_cols, has_samples, stringers, extra_columns, impacts_extras = d_and_impacts_headers
     impacts = []
     for k, cls in KEY_2_CLASS.items():
         if not k in d: continue
@@ -826,7 +861,7 @@ def gene_info(d_and_impacts_headers):
         for k in keys:
             d[k] = getattr(top, k)
         for k in extra_columns:
-            d[k.lower()] = top.effects.get(k, '')
+            d[clean(k)] = top.effects.get(k, '')
 
     d['impact'] = top.top_consequence
     d['impact_so'] = top.so
@@ -840,14 +875,17 @@ def gene_info(d_and_impacts_headers):
     u = dict.fromkeys(req_cols)
     u.update(d)
     for k in (rc for rc in req_cols if not rc.islower()):
+        ck = clean(k)
+        if ck in d: continue
         if k in stringers:
             v = encode(d.get(k))
-            u[k.lower()] = v
+            u[ck] = v
         else:
-            u[k.lower()] = d.get(k)
+            u[ck] = d.get(k)
 
 
     d = u
+    assert d['start'] is not None
     gimpacts = []
     for impact in impacts:
         #gimpacts.append({k: getattr(impact, k) for k in keys})
@@ -858,7 +896,7 @@ def gene_info(d_and_impacts_headers):
                              exon=impact.exon, codon_change=impact.codon_change,
                              aa_change=impact.aa_change, aa_length=impact.aa_length,
                              biotype=impact.biotype, top_consequence=impact.top_consequence,
-                             so=impact.so, effect_severity=impact.effect_severity,
+                             impact_so=impact.so, impact_severity=impact.effect_severity,
                              domains=impact.domains,
                              polyphen_pred=impact.polyphen_pred,
                              polyphen_score=impact.polyphen_score,
@@ -879,8 +917,13 @@ def gene_info(d_and_impacts_headers):
                              provean_pred=impact.provean_pred,
                              phastcons100way_vertebrate=impact.phastcons100way_vertebrate,
                              phylop100way_vertebrate=impact.phylop100way_vertebrate))
+        lv = gimpacts[-1]
         for k in impact.unused():
-            gimpacts[-1][k.lower()] = impact.effects.get(k, '')
+            lv[clean(k)] = impact.effects.get(k, '')
+        for k in impacts_extras:
+            lv[k] = d.get(k)
+
+    assert d['start'] is not None
     return d, gimpacts
 
 def encode(v):
@@ -910,6 +953,10 @@ if __name__ == "__main__":
     p.add_argument("-e", "--info-exclude", action='append',
                    help="don't save this field to the database. May be specified " \
                         "multiple times.")
+    p.add_argument("--impacts-field", action="append", help="this field should be propagated " \
+            "to the variant_impacts table. by default, only CSQ/EFF/ANN fields are added. "
+            "the field can be suffixed with a type of ':i' or ':f' to indicate int or float to "
+            "override the default of string. e.g. AF:f ")
     p.add_argument("--legacy-compression", action='store_true', default=False)
 
     p.add_argument("--expand",
@@ -922,5 +969,5 @@ if __name__ == "__main__":
 
     main_blobber = pack_blob if a.legacy_compression else snappy_pack_blob
 
-    VCFDB(a.VCF, a.db, a.ped, a.gene_summary, a.gene_details, black_list=a.info_exclude, expand=a.expand, blobber=main_blobber)
+    VCFDB(a.VCF, a.db, a.ped, a.gene_summary, a.gene_details, black_list=a.info_exclude, expand=a.expand, blobber=main_blobber, impacts_extras=a.impacts_field)
 
