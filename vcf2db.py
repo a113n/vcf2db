@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
 """
 Take a VCF and create a gemini compatible database
 """
@@ -57,16 +60,16 @@ b'GIF89a'
 # Python2
 if sys.version_info < (3,):
     from itertools import imap as map
-    ESCAPE = "string_escape"
+    ESCAPE = "unicode_escape"
     def b(x):
-        return x
+        return unicode(x)
 # Python3
 else:
     ESCAPE = "unicode_escape"
     unicode = str
     buffer = memoryview
     def b(x):
-        return x.encode('ISO-8859-1')
+        return x.encode('utf-8')
 
 def from_bytes(s):
     if isinstance(s, bytes):
@@ -195,6 +198,8 @@ class VCFDB(object):
         self.vcf_path = vcf_path
         self.db_path = get_dburl(db_path)
         self.engine = sql.create_engine(self.db_path, poolclass=sql.pool.NullPool)
+        self.engine.connect().connection.connection.text_factory = str
+        self.engine.raw_connection().connection.text_factory = str
         self.impacts_headers = {}
         self.metadata = sql.MetaData(bind=self.engine)
         self.expand = expand or []
@@ -767,7 +772,7 @@ class VCFDB(object):
         """ returns sql.Column, string cid, bool af_col, bool stringer"""
 
         cid = clean(d["ID"])
-        if (d['Number'] in "RA" and not af_like(cid)) or (d['Number'].isdigit() and d['Number'] != '1'):
+        if (d['Number'] in "RA" and not af_like(cid)) or (d['Number'].isdigit() and d['Number'] > '1'):
             print("skipping '%s' because it has Number=%s" % (d["ID"], d["Number"]),
                   file=sys.stderr)
             return None, None, None, None
@@ -930,7 +935,7 @@ def encode(v):
     if v.__class__ in (list, tuple):
         v = u",".join(b(unicode(item)) for item in v)
     elif not v.__class__ in (str, unicode):
-        v = str(v)
+        v = unicode(v)
     if v is not None:
         try:
             v.encode('utf-8')
@@ -970,4 +975,3 @@ if __name__ == "__main__":
     main_blobber = pack_blob if a.legacy_compression else snappy_pack_blob
 
     VCFDB(a.VCF, a.db, a.ped, a.gene_summary, a.gene_details, black_list=a.info_exclude, expand=a.expand, blobber=main_blobber, impacts_extras=a.impacts_field)
-
